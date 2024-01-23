@@ -1,31 +1,29 @@
 from typing import List
 import torch
 import copy
-import os
-from torchvision import transforms
 
 from .vqa_model import VQAScoreModel
-from ...constants import HF_CACHE_DIR, DEFAULT_IMAGE_TOKEN, IGNORE_INDEX, END_OF_CHUNK, CONTEXT_LEN
+from ...constants import HF_CACHE_DIR, IGNORE_INDEX, CONTEXT_LEN
 from transformers import AutoProcessor, Kosmos2ForConditionalGeneration
 
 default_question_template = "Is the image showing '{}'? Please answer yes or no."
 default_answer_template = "Yes"
 
-KOSMOS_2_MODELS = {
+KOSMOS2_MODELS = {
     'kosmos-2-patch14-224': {
         'checkpoint_path': 'microsoft/kosmos-2-patch14-224',
         'model_max_length': CONTEXT_LEN
     }
 }
 
-def format_question(question, kosmos_2_vqa_template=False):
-    if kosmos_2_vqa_template:
+def format_question(question, kosmos2_vqa_template=False):
+    if kosmos2_vqa_template:
         return '<grounding> Question: ' + question
     else:
         return question
 
-def format_answer(answer, kosmos_2_vqa_template=False):
-    if kosmos_2_vqa_template:
+def format_answer(answer, kosmos2_vqa_template=False):
+    if kosmos2_vqa_template:
         return 'Answer: ' + answer
     else:
         return answer
@@ -36,24 +34,24 @@ class Kosmos2Model(VQAScoreModel):
                  model_name='kosmos-2-patch14-224',
                  device='cuda',
                  cache_dir=HF_CACHE_DIR):
-        assert model_name in KOSMOS_2_MODELS
+        assert model_name in KOSMOS2_MODELS
         super().__init__(model_name=model_name,
                          device=device,
                          cache_dir=cache_dir)
     def load_model(self):
         # Load model and processor from HuggingFace or local if cached
         self.model = Kosmos2ForConditionalGeneration.from_pretrained(
-            KOSMOS_2_MODELS[self.model_name]['checkpoint_path'],
+            KOSMOS2_MODELS[self.model_name]['checkpoint_path'],
             cache_dir=self.cache_dir
         )
         self.processor = AutoProcessor.from_pretrained(
-            KOSMOS_2_MODELS[self.model_name]['checkpoint_path'],
+            KOSMOS2_MODELS[self.model_name]['checkpoint_path'],
             cache_dir=self.cache_dir
         )
         self.model.to(self.device)
         self.model.requires_grad_(False)
         self.tokenizer = self.processor.tokenizer
-        self.context_len = KOSMOS_2_MODELS[self.model_name]['model_max_length']
+        self.context_len = KOSMOS2_MODELS[self.model_name]['model_max_length']
 
     def load_images(self,
                     image: List[str]) -> torch.Tensor:
@@ -63,7 +61,6 @@ class Kosmos2Model(VQAScoreModel):
         image = [self.image_loader(x) for x in image]
         image = [x.resize((size, size)) for x in image]
         # Processor do all the image preprocessing and expects PIL image
-
         return image
 
     @torch.no_grad()
@@ -106,6 +103,7 @@ class Kosmos2Model(VQAScoreModel):
 
         # Forward through the model
         outputs = self.model(**inputs, labels=labels)
+
         loss_fct = torch.nn.CrossEntropyLoss(reduction='mean')
         output_logits = outputs.logits[:, :-1, :].contiguous()
         output_labels = labels[:, 1:].contiguous()
